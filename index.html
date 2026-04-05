@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chinese Business Template Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+    body { font-family: 'Noto Sans SC', sans-serif; }
+    .whatsapp-card {
+      background-color: #DCF8C6;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.7;
+    }
+    .tab-scroll::-webkit-scrollbar { display: none; }
+    .tab-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { opacity: 1; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo } = React;
+
+    const TEMPLATES = [
+      { id: 1, label: '预约模板', sub: 'Booking' },
+      { id: 2, label: '确认模板', sub: 'Confirmation' },
+      { id: 3, label: '场地确认模板', sub: 'Venue' },
+      { id: 4, label: '感谢模板', sub: 'Thank You' },
+      { id: 5, label: '回国模板', sub: 'Return Home' },
+    ];
+
+    const SESSION_TYPES = ['开框', '数字', '学习', '跟进1', '跟进2', '跟进3', '跟进4'];
+    const TIME_OPTIONS = ['上午', '下午'];
+
+    // Which fields each template needs
+    const FIELD_MAP = {
+      seniorName:    [1,2,3,4,5],
+      myName:        [1,2,3,4,5],
+      sponsorName:   [1,2,3,4,5],
+      gmName:        [1,2],
+      directorName:  [1,2],
+      date:          [1,2,3],
+      timeOfDay:     [1,3],
+      hour:          [1,3],
+      sessionType:   [1,2,3],
+      numGuests:     [1],
+      monthReturn:   [5],
+    };
+
+    function isFieldRequired(field, templateId) {
+      return FIELD_MAP[field]?.includes(templateId) ?? false;
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const [y, m, d] = dateStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function generateTemplate(t, f) {
+      const d = formatDate(f.date);
+      const time = f.timeOfDay && f.hour ? `${f.timeOfDay}${f.hour}点` : '';
+
+      switch (t) {
+        case 1:
+          return `${f.seniorName}前辈您好\n我是.......${f.myName} \n推荐人...${f.sponsorName} \n家长.......${f.gmName} \n大家长...${f.directorName} \n请问您能够接我${d} ${time}的${f.sessionType}吗？\n我这里有${f.numGuests}位VIP会去${f.sessionType}。 谢谢您，感恩 ${f.myName}敬上`;
+        case 2:
+          return `${f.seniorName}前辈您好\n我是.......${f.myName} \n推荐人...${f.sponsorName} \n家长.......${f.gmName} \n大家长...${f.directorName} \n感谢${f.seniorName}您百忙之中接我${d} ${f.sessionType}\n谢谢您，感恩 ${f.myName}敬上`;
+        case 3:
+          return `${f.seniorName}前辈您好 \n我是${f.myName}, ${f.sponsorName}家人\n我想和你确定明天${time}的${f.sessionType}\n请把地址发给我 \n谢谢 ${f.myName}敬上`;
+        case 4:
+          return `${f.seniorName}前辈您好 \n我是${f.myName}, ${f.sponsorName}家人 \n谢谢您今天的分享，让我的朋友對項目更加了解 \n感谢感恩  ${f.myName}敬上`;
+        case 5:
+          return `${f.seniorName}前辈您好 \n我是${f.myName}, ${f.sponsorName}家人 \n谢谢您這個月給予我与家人的帮助与扶持，我今天要回新加坡了 \n下個月见 \n感恩 ${f.myName}敬上`;
+        default:
+          return '';
+      }
+    }
+
+    function TextField({ label, labelEn, value, onChange, required, missing }) {
+      return (
+        <div className="mb-3">
+          <label className="block mb-1">
+            <span className="font-semibold text-gray-800">{label}</span>
+            <span className="text-xs text-gray-400 ml-1.5">{labelEn}</span>
+          </label>
+          <input
+            type="text"
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] transition-colors ${
+              missing ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+            } outline-none`}
+          />
+          {missing && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+        </div>
+      );
+    }
+
+    function App() {
+      const [activeTemplate, setActiveTemplate] = useState(1);
+      const [copied, setCopied] = useState(false);
+      const [touched, setTouched] = useState(false);
+
+      // Form fields
+      const [seniorName, setSeniorName] = useState('');
+      const [myName, setMyName] = useState(() => localStorage.getItem('bbw_myName') || '');
+      const [sponsorName, setSponsorName] = useState(() => localStorage.getItem('bbw_sponsorName') || '');
+      const [gmName, setGmName] = useState(() => localStorage.getItem('bbw_gmName') || '');
+      const [directorName, setDirectorName] = useState(() => localStorage.getItem('bbw_directorName') || '');
+      const [date, setDate] = useState('');
+      const [timeOfDay, setTimeOfDay] = useState('上午');
+      const [hour, setHour] = useState('');
+      const [sessionType, setSessionType] = useState('');
+      const [numGuests, setNumGuests] = useState('');
+      const [monthReturn, setMonthReturn] = useState('');
+
+      // Persist to localStorage
+      useEffect(() => { localStorage.setItem('bbw_myName', myName); }, [myName]);
+      useEffect(() => { localStorage.setItem('bbw_sponsorName', sponsorName); }, [sponsorName]);
+      useEffect(() => { localStorage.setItem('bbw_gmName', gmName); }, [gmName]);
+      useEffect(() => { localStorage.setItem('bbw_directorName', directorName); }, [directorName]);
+
+      const fields = { seniorName, myName, sponsorName, gmName, directorName, date, timeOfDay, hour, sessionType, numGuests, monthReturn };
+
+      const missingFields = useMemo(() => {
+        if (!touched) return {};
+        const m = {};
+        for (const [key, templates] of Object.entries(FIELD_MAP)) {
+          if (templates.includes(activeTemplate) && !fields[key]) {
+            m[key] = true;
+          }
+        }
+        return m;
+      }, [touched, activeTemplate, seniorName, myName, sponsorName, gmName, directorName, date, timeOfDay, hour, sessionType, numGuests, monthReturn]);
+
+      const allFilled = useMemo(() => {
+        for (const [key, templates] of Object.entries(FIELD_MAP)) {
+          if (templates.includes(activeTemplate) && !fields[key]) return false;
+        }
+        return true;
+      }, [activeTemplate, seniorName, myName, sponsorName, gmName, directorName, date, timeOfDay, hour, sessionType, numGuests, monthReturn]);
+
+      const preview = useMemo(() => generateTemplate(activeTemplate, fields), [activeTemplate, seniorName, myName, sponsorName, gmName, directorName, date, timeOfDay, hour, sessionType, numGuests, monthReturn]);
+
+      const handleCopy = useCallback(async () => {
+        setTouched(true);
+        if (!allFilled) return;
+        try {
+          await navigator.clipboard.writeText(preview);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // Fallback
+          const ta = document.createElement('textarea');
+          ta.value = preview;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      }, [allFilled, preview]);
+
+      const req = (field) => isFieldRequired(field, activeTemplate);
+      const show = req;
+      const miss = (field) => missingFields[field] ?? false;
+
+      return (
+        <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
+          {/* Header */}
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-1">
+            中文商业模板生成器
+          </h1>
+          <p className="text-sm text-gray-400 mb-4">Chinese Business Template Generator</p>
+
+          {/* Template Tabs */}
+          <div className="tab-scroll flex gap-2 overflow-x-auto pb-3 mb-4">
+            {TEMPLATES.map(t => (
+              <button
+                key={t.id}
+                onClick={() => { setActiveTemplate(t.id); setTouched(false); }}
+                className={`flex-shrink-0 px-4 py-2.5 rounded-full text-sm font-medium min-h-[44px] transition-all ${
+                  activeTemplate === t.id
+                    ? 'bg-green-600 text-white shadow-md'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:border-green-400'
+                }`}
+              >
+                <span>{t.label}</span>
+                <span className="block text-xs opacity-70">{t.sub}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* Form */}
+            <div className="w-full lg:w-1/2">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                <h2 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Fill in Details</h2>
+
+                <TextField label="前辈名字" labelEn="Senior's Name" value={seniorName} onChange={setSeniorName} required={req('seniorName')} missing={miss('seniorName')} />
+                <TextField label="我的名字" labelEn="My Name" value={myName} onChange={setMyName} required={req('myName')} missing={miss('myName')} />
+                <TextField label="推荐人名字" labelEn="Sponsor's Name" value={sponsorName} onChange={setSponsorName} required={req('sponsorName')} missing={miss('sponsorName')} />
+
+                {show('gmName') && (
+                  <TextField label="家长名字" labelEn="GM's Name" value={gmName} onChange={setGmName} required missing={miss('gmName')} />
+                )}
+                {show('directorName') && (
+                  <TextField label="大家长名字" labelEn="Director's Name" value={directorName} onChange={setDirectorName} required missing={miss('directorName')} />
+                )}
+
+                {show('date') && (
+                  <div className="mb-3">
+                    <label className="block mb-1">
+                      <span className="font-semibold text-gray-800">日期</span>
+                      <span className="text-xs text-gray-400 ml-1.5">Date</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={date}
+                      onChange={e => setDate(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] ${
+                        miss('date') ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+                      } outline-none`}
+                    />
+                    {miss('date') && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+                  </div>
+                )}
+
+                {show('timeOfDay') && (
+                  <div className="flex gap-3 mb-3">
+                    <div className="flex-1">
+                      <label className="block mb-1">
+                        <span className="font-semibold text-gray-800">时段</span>
+                        <span className="text-xs text-gray-400 ml-1.5">Time of Day</span>
+                      </label>
+                      <select
+                        value={timeOfDay}
+                        onChange={e => setTimeOfDay(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-base min-h-[44px] outline-none focus:border-blue-500"
+                      >
+                        {TIME_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block mb-1">
+                        <span className="font-semibold text-gray-800">时间</span>
+                        <span className="text-xs text-gray-400 ml-1.5">Hour (1-12)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="12"
+                        value={hour}
+                        onChange={e => setHour(e.target.value)}
+                        placeholder="1-12"
+                        className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] ${
+                          miss('hour') ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+                        } outline-none`}
+                      />
+                      {miss('hour') && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+                    </div>
+                  </div>
+                )}
+
+                {show('sessionType') && (
+                  <div className="mb-3">
+                    <label className="block mb-1">
+                      <span className="font-semibold text-gray-800">场次类型</span>
+                      <span className="text-xs text-gray-400 ml-1.5">Session Type</span>
+                    </label>
+                    <select
+                      value={sessionType}
+                      onChange={e => setSessionType(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] ${
+                        miss('sessionType') ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+                      } outline-none`}
+                    >
+                      <option value="">-- 选择 Select --</option>
+                      {SESSION_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    {miss('sessionType') && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+                  </div>
+                )}
+
+                {show('numGuests') && (
+                  <div className="mb-3">
+                    <label className="block mb-1">
+                      <span className="font-semibold text-gray-800">VIP人数</span>
+                      <span className="text-xs text-gray-400 ml-1.5">Number of Guests</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={numGuests}
+                      onChange={e => setNumGuests(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] ${
+                        miss('numGuests') ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+                      } outline-none`}
+                    />
+                    {miss('numGuests') && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+                  </div>
+                )}
+
+                {show('monthReturn') && (
+                  <div className="mb-3">
+                    <label className="block mb-1">
+                      <span className="font-semibold text-gray-800">回国月份</span>
+                      <span className="text-xs text-gray-400 ml-1.5">Month of Return (1-12)</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="12"
+                      value={monthReturn}
+                      onChange={e => setMonthReturn(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-base min-h-[44px] ${
+                        miss('monthReturn') ? 'border-red-400 bg-red-50' : 'border-gray-300 focus:border-blue-500'
+                      } outline-none`}
+                    />
+                    {miss('monthReturn') && <p className="text-red-500 text-xs mt-1">此栏必填 Required</p>}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="w-full lg:w-1/2">
+              <div className="sticky top-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                  <h2 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Preview</h2>
+                  <div className="whatsapp-card px-4 py-3 text-base">
+                    {preview || <span className="text-gray-400 italic">Fill in the form to see preview...</span>}
+                  </div>
+                  <button
+                    onClick={handleCopy}
+                    disabled={touched && !allFilled}
+                    className={`mt-4 w-full py-3 rounded-lg text-base font-semibold min-h-[48px] transition-all ${
+                      copied
+                        ? 'bg-green-500 text-white'
+                        : touched && !allFilled
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-green-600 text-white hover:bg-green-700 active:scale-[0.98]'
+                    }`}
+                  >
+                    {copied ? '✓ Copied!' : 'Copy to Clipboard'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
