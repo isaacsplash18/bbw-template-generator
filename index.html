@@ -631,7 +631,7 @@
             .filter(([, v]) => v && !v.hhmm)
             .map(([k]) => k)
         : [];
-      const canGenerate = parsed && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl && missingTimes.length === 0;
+      const canGenerate = parsed && chineseName && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl && missingTimes.length === 0;
 
       const handleGenerate = useCallback(async () => {
         if (missingTimes.length > 0) {
@@ -673,31 +673,40 @@
       const sponsorUC = parsed ? parsed.sponsor.toUpperCase() : '';
       const fullAppName = chineseName ? `${applicantNameUC} ${chineseName}` : applicantNameUC;
 
-      const sampleText = `Name of Sponsor: Tan Geok Yian
-Name of Guest: Harrison Phong (Guest)
-13/4 1pm Time of Flight Land✅
-13/4 2:30pm Airport Transfer & City Tour: 芳芳✅
-14/4 2pm KK-Mag Yeo✅
-14/4 5:30pm GJ1-Shaun Goh✅
-15/4 9am URA✅
-15/4 2pm Numbers-Alex Lim✅
-15/4 6pm GJ2-Agnes Oon✅
-15/4 7pm Family Dinner✅
-15/4 9:30pm 3rd Night: Wendy and Joenna GM
-16/4 10:30am GJ3-Carina Ng✅
-16/4 12:30pm Register phone Card 🔄 Wendy will arrange**
-16/4 3:30pm GJ4-Daniel Png✅
-16/4 6pm FK: Wendy and Joenna GM✅
-16/4 6pm SG: Moxhan (GM-Rachell,Joenna,Wendy)
-Name of Direct GM: Wendy
-16/4 7pm AP Networking Dinner✅
-18/4 11:30am Airport Transfer✅
-18/4 2:00pm Time of Flight home✅`;
+      const sampleText = `Name of Sponsor: Lim Ah Kow
+Name of Guest: Tan Bee Hwa (Guest)
+13/4 1pm Time of Flight Land
+13/4 2:30pm Airport Transfer & City Tour: 小明
+14/4 2pm KK-Chua Mei Ling
+14/4 5:30pm GJ1-Ng Boon Keng
+15/4 9am URA
+15/4 2pm Numbers-Goh Soon Huat
+15/4 6pm GJ2-Ong Hui Fang
+15/4 7pm Family Dinner
+15/4 9:30pm 3rd Night: Koh Wei Ming
+16/4 10:30am GJ3-Teo Siew Lan
+16/4 12:30pm Register phone Card
+16/4 3:30pm GJ4-Sim Kok Wah
+16/4 6pm FK: Koh Wei Ming
+16/4 6pm SG: Moxhan
+Name of Direct GM: Koh Wei Ming
+16/4 7pm AP Networking Dinner
+18/4 11:30am Airport Transfer
+18/4 2:00pm Time of Flight home`;
 
       return (
         <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-1">SG 表格生成器</h1>
           <p className="text-sm text-gray-400 mb-4">SG Form PDF Generator</p>
+
+          <div className="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 text-sm text-amber-900">
+            <div className="font-semibold mb-2">⚠ PLEASE NOTE:</div>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Ensure <strong>Sponsor name, GM, and Guest name</strong> are all in CAPS and as per passport</li>
+              <li>All names should be in CAPS</li>
+              <li>Make sure there is only <strong>1 name for FK</strong>, not 2</li>
+            </ul>
+          </div>
 
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Form side */}
@@ -750,7 +759,7 @@ Name of Direct GM: Wendy
                 <h2 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
                   Step 2 — Additional Details
                 </h2>
-                <TextField label="申请人中文名" labelEn="Chinese Name (optional)" value={chineseName} onChange={setChineseName} />
+                <TextField label="申请人中文名" labelEn="Chinese Name (required)" value={chineseName} onChange={setChineseName} missing={!chineseName && !!parsed} />
                 <div className="mb-3">
                   <label className="block mb-1">
                     <span className="font-semibold text-gray-800">股份</span>
