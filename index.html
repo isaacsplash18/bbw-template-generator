@@ -370,107 +370,181 @@
     // ============================================================
 
     function parseSchedule(text) {
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const rawLines = text.split('\n');
       const currentYear = new Date().getFullYear();
       const result = {
         sponsor: '', guest: '', directGmFirst: '',
         sgDate: null, startDate: null, endDate: null,
         items: { cityTour: null, kk: null, gj1: null, numbers: null, gj2: null, gj3: null, gj4: null, fk: null },
-        warnings: []
+        warnings: [],
+        allDates: []
       };
 
-      function parseTimeLine(line) {
-        // Strip common emojis/markers and normalise whitespace
-        let clean = line
-          .replace(/[\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF\u2700-\u27FF\uFE0F]/g, '')
+      const MONTHS = {
+        jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+        january:1,february:2,march:3,april:4,june:6,july:7,august:8,september:9,october:10,november:11,december:12
+      };
+
+      function cleanLine(line) {
+        return line
+          .replace(/[\u2000-\u200F\u202F\u2060\uFEFF]/g, '')
+          .replace(/^[\s\*\-–—•·‣>]+/, '')
+          .replace(/[\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF]/g, '')
           .replace(/\*+/g, '')
           .replace(/\s+/g, ' ')
           .trim();
-        // Date: DD[/.-]MM (separator is / . or -)
-        // Time: either HH:MM(am|pm) / HHam|HHpm / HH:MM (24hr) / HHMM (24hr)
-        // with optional spaces anywhere and optional "at" keyword
-        const m = clean.match(
-          /^(\d{1,2})[\/\.\-](\d{1,2})(?:[\/\.\-](\d{2,4}))?\s+(?:at\s+)?(\d{1,2})(?:[:\.](\d{2}))?\s*(am|pm|AM|PM)?\s+(.*)$/
-        );
-        if (!m) return null;
-        const day = parseInt(m[1], 10);
-        const month = parseInt(m[2], 10);
-        let year = currentYear;
-        if (m[3]) {
-          year = parseInt(m[3], 10);
-          if (year < 100) year += 2000;
-        }
-        let hour = parseInt(m[4], 10);
-        const min = m[5] ? parseInt(m[5], 10) : 0;
-        const ampm = m[6] ? m[6].toLowerCase() : null;
-        if (ampm === 'pm' && hour !== 12) hour += 12;
-        if (ampm === 'am' && hour === 12) hour = 0;
-        // If no am/pm and hour <= 7, assume PM (common evening activities);
-        // otherwise leave as 24hr.
-        if (day < 1 || day > 31 || month < 1 || month > 12 || hour > 23) return null;
-        const hhmm = String(hour).padStart(2, '0') + String(min).padStart(2, '0');
-        return { day, month, year, hhmm, rest: m[7].trim() };
       }
 
-      for (const line of lines) {
-        if (/^Name of Sponsor:/i.test(line)) {
-          result.sponsor = line.split(':').slice(1).join(':').trim();
-        } else if (/^Name of Guest:/i.test(line)) {
-          result.guest = line.split(':').slice(1).join(':').trim().replace(/\s*\([^)]*\)\s*$/, '');
-        } else if (/^Name of Direct GM:/i.test(line)) {
-          result.directGmFirst = line.split(':').slice(1).join(':').trim();
-        } else {
-          const p = parseTimeLine(line);
-          if (!p) continue;
-          const rest = p.rest;
-          const datePart = { day: p.day, month: p.month, year: p.year };
+      let lastMonth = null;
 
-          if (/Time of Flight Land/i.test(rest)) {
-            result.startDate = datePart;
-          }
-          if (/^SG:/i.test(rest)) {
-            result.sgDate = datePart;
-          }
-          // Flexible separator: ":", "-", "–", "—", or whitespace
-          const SEP = '[\\s:\\-–—]+';
-          const extractAfter = (keyword) => {
-            const re = new RegExp('\\b' + keyword + SEP + '(.+)$', 'i');
-            const mm = rest.match(re);
-            return mm ? mm[1].trim().replace(/[\s,;.]+$/, '') : null;
-          };
-
-          // City Tour — take whatever comes after it (drop "City Tour" phrase)
-          if (/city\s*tour/i.test(rest)) {
-            const ctMatch = rest.match(/city\s*tour[\s:\-–—]*(.*)$/i);
-            let name = ctMatch ? ctMatch[1].trim() : '';
-            name = name.replace(/[\s,;.]+$/, '');
-            result.items.cityTour = { date: datePart, hhmm: p.hhmm, name };
-          }
-
-          const kkName = extractAfter('KK');
-          if (kkName) result.items.kk = { date: datePart, hhmm: p.hhmm, name: kkName };
-
-          const gj1Name = extractAfter('GJ1');
-          if (gj1Name) result.items.gj1 = { date: datePart, hhmm: p.hhmm, name: gj1Name };
-
-          const numName = extractAfter('Numbers');
-          if (numName) result.items.numbers = { date: datePart, hhmm: p.hhmm, name: numName };
-
-          const gj2Name = extractAfter('GJ2');
-          if (gj2Name) result.items.gj2 = { date: datePart, hhmm: p.hhmm, name: gj2Name };
-
-          const gj3Name = extractAfter('GJ3');
-          if (gj3Name) result.items.gj3 = { date: datePart, hhmm: p.hhmm, name: gj3Name };
-
-          const gj4Name = extractAfter('GJ4');
-          if (gj4Name) result.items.gj4 = { date: datePart, hhmm: p.hhmm, name: gj4Name };
-
-          const fkName = extractAfter('FK');
-          if (fkName) {
-            const cleaned = fkName.replace(/\s*GM\s*$/i, '').trim();
-            result.items.fk = { date: datePart, hhmm: p.hhmm, name: cleaned };
+      function findDate(line) {
+        // 1) DD/MM[/YY]
+        let m = line.match(/\b(\d{1,2})[\/\.](\d{1,2})(?:[\/\.](\d{2,4}))?\b/);
+        if (m) {
+          const day = +m[1], month = +m[2];
+          if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            let year = m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : currentYear;
+            lastMonth = month;
+            return { day, month, year, match: m[0] };
           }
         }
+        // 2) Nth Month
+        m = line.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b/i);
+        if (m && MONTHS[m[2].toLowerCase()]) {
+          const day = +m[1];
+          const month = MONTHS[m[2].toLowerCase()];
+          lastMonth = month;
+          return { day, month, year: currentYear, match: m[0] };
+        }
+        // 3) Month Nth
+        m = line.match(/\b([A-Za-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+        if (m && MONTHS[m[1].toLowerCase()]) {
+          const month = MONTHS[m[1].toLowerCase()];
+          const day = +m[2];
+          lastMonth = month;
+          return { day, month, year: currentYear, match: m[0] };
+        }
+        // 4) Just Nth (uses last known month)
+        m = line.match(/\b(\d{1,2})(st|nd|rd|th)\b/i);
+        if (m && lastMonth) {
+          return { day: +m[1], month: lastMonth, year: currentYear, match: m[0] };
+        }
+        return null;
+      }
+
+      function findTime(line) {
+        const m = line.match(/\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)\b/i);
+        if (m) {
+          let hour = +m[1];
+          const min = m[2] ? +m[2] : 0;
+          const ampm = m[3].toLowerCase();
+          if (ampm === 'pm' && hour !== 12) hour += 12;
+          if (ampm === 'am' && hour === 12) hour = 0;
+          return { hhmm: String(hour).padStart(2,'0') + String(min).padStart(2,'0'), match: m[0] };
+        }
+        const m2 = line.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+        if (m2) {
+          return { hhmm: String(+m2[1]).padStart(2,'0') + m2[2], match: m2[0] };
+        }
+        return null;
+      }
+
+      function extractName(rest, dateMatch, timeMatch) {
+        let s = rest;
+        if (dateMatch) s = s.split(dateMatch).join(' ');
+        if (timeMatch) s = s.split(timeMatch).join(' ');
+        s = s.replace(/\([^)]*\)/g, '');
+        s = s.replace(/^[\s:\-–—,]+/, '');
+        s = s.replace(/\s+from\s+.+$/i, '');
+        s = s.replace(/[\s,;.]+$/, '');
+        s = s.replace(/\s+/g, ' ').trim();
+        return s;
+      }
+
+      for (const rawLine of rawLines) {
+        const line = cleanLine(rawLine);
+        if (!line) continue;
+
+        if (/^Name of Sponsor[:\-]/i.test(line)) {
+          result.sponsor = line.replace(/^Name of Sponsor[:\-]\s*/i, '').trim();
+          continue;
+        }
+        if (/^Name of Guest[:\-]/i.test(line)) {
+          result.guest = line.replace(/^Name of Guest[:\-]\s*/i, '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+          continue;
+        }
+        if (/^Name of Direct GM[:\-]/i.test(line)) {
+          result.directGmFirst = line.replace(/^Name of Direct GM[:\-]\s*/i, '').trim();
+          continue;
+        }
+
+        const date = findDate(line);
+        const time = findTime(line);
+
+        if (date) {
+          result.allDates.push({ day: date.day, month: date.month, year: date.year });
+        }
+
+        if (/\bSG\s*:/i.test(line) && date) {
+          result.sgDate = { day: date.day, month: date.month, year: date.year };
+        }
+
+        if (!date || !time) continue;
+
+        const datePart = { day: date.day, month: date.month, year: date.year };
+        const timePart = time.hhmm;
+
+        function pickName(keywordRegex) {
+          const km = line.match(keywordRegex);
+          if (!km) return null;
+          const idx = line.indexOf(km[0]);
+          const rest = line.substring(idx + km[0].length);
+          return extractName(rest, date.match, time.match);
+        }
+
+        if (/city\s*tour/i.test(line)) {
+          const name = pickName(/city\s*tour/i) || '';
+          result.items.cityTour = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bKK\b/i.test(line)) {
+          const name = pickName(/\bKK\b/i);
+          if (name) result.items.kk = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bGJ\s*1\b/i.test(line)) {
+          const name = pickName(/\bGJ\s*1\b/i);
+          if (name) result.items.gj1 = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bNumbers\b/i.test(line)) {
+          const name = pickName(/\bNumbers\b/i);
+          if (name) result.items.numbers = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bGJ\s*2\b/i.test(line)) {
+          const name = pickName(/\bGJ\s*2\b/i);
+          if (name) result.items.gj2 = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bGJ\s*3\b/i.test(line)) {
+          const name = pickName(/\bGJ\s*3\b/i);
+          if (name) result.items.gj3 = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bGJ\s*4\b/i.test(line)) {
+          const name = pickName(/\bGJ\s*4\b/i);
+          if (name) result.items.gj4 = { date: datePart, hhmm: timePart, name };
+        }
+        if (/\bFK\b/i.test(line)) {
+          const name = pickName(/\bFK\b/i);
+          if (name) {
+            const cleaned = name.replace(/\s*GM\s*$/i, '').trim();
+            result.items.fk = { date: datePart, hhmm: timePart, name: cleaned };
+          }
+        }
+      }
+
+      // Start Date: earliest date in the schedule (covers both formats)
+      if (result.allDates.length > 0) {
+        const sorted = result.allDates.slice().sort((a,b) => {
+          return new Date(a.year, a.month-1, a.day) - new Date(b.year, b.month-1, b.day);
+        });
+        result.startDate = sorted[0];
       }
 
       if (result.startDate) {
@@ -479,16 +553,16 @@
         result.endDate = { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
       }
 
-      if (!result.items.cityTour) result.warnings.push('City Tour line not found');
-      if (!result.items.kk) result.warnings.push('KK line not found');
-      if (!result.items.gj1) result.warnings.push('GJ1 line not found');
-      if (!result.items.numbers) result.warnings.push('Numbers line not found');
-      if (!result.items.gj2) result.warnings.push('GJ2 line not found');
-      if (!result.items.gj3) result.warnings.push('GJ3 line not found');
-      if (!result.items.gj4) result.warnings.push('GJ4 line not found');
-      if (!result.items.fk) result.warnings.push('FK line not found');
-      if (!result.sgDate) result.warnings.push('SG: line not found — Date of Application will be blank');
-      if (!result.startDate) result.warnings.push('Time of Flight Land line not found — journey dates will be blank');
+      if (!result.items.cityTour) result.warnings.push('City Tour not found');
+      if (!result.items.kk) result.warnings.push('KK not found');
+      if (!result.items.gj1) result.warnings.push('GJ1 not found');
+      if (!result.items.numbers) result.warnings.push('Numbers not found');
+      if (!result.items.gj2) result.warnings.push('GJ2 not found');
+      if (!result.items.gj3) result.warnings.push('GJ3 not found');
+      if (!result.items.gj4) result.warnings.push('GJ4 not found');
+      if (!result.items.fk) result.warnings.push('FK not found');
+      if (!result.sgDate) result.warnings.push('SG: line not found');
+      if (!result.startDate) result.warnings.push('No dates found');
 
       return result;
     }
