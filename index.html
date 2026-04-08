@@ -8,6 +8,8 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
     body { font-family: 'Noto Sans SC', sans-serif; }
@@ -106,7 +108,7 @@
       );
     }
 
-    function App() {
+    function ChineseTemplateApp() {
       const [activeTemplate, setActiveTemplate] = useState(1);
       const [copied, setCopied] = useState(false);
       const [touched, setTouched] = useState(false);
@@ -359,6 +361,482 @@
               </div>
             </div>
           </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // SG FORM GENERATOR MODULE
+    // ============================================================
+
+    function parseSchedule(text) {
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const currentYear = new Date().getFullYear();
+      const result = {
+        sponsor: '', guest: '', directGmFirst: '',
+        sgDate: null, startDate: null, endDate: null,
+        items: { cityTour: null, kk: null, gj1: null, numbers: null, gj2: null, gj3: null, gj4: null, fk: null },
+        warnings: []
+      };
+
+      function parseTimeLine(line) {
+        const clean = line.replace(/[✅🔄]/g, '').replace(/\*+$/, '').trim();
+        const m = clean.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+(.*)$/i);
+        if (!m) return null;
+        const day = parseInt(m[1], 10);
+        const month = parseInt(m[2], 10);
+        let hour = parseInt(m[3], 10);
+        const min = m[4] ? parseInt(m[4], 10) : 0;
+        const ampm = m[5].toLowerCase();
+        if (ampm === 'pm' && hour !== 12) hour += 12;
+        if (ampm === 'am' && hour === 12) hour = 0;
+        const hhmm = String(hour).padStart(2, '0') + String(min).padStart(2, '0');
+        return { day, month, year: currentYear, hhmm, rest: m[6].trim() };
+      }
+
+      for (const line of lines) {
+        if (/^Name of Sponsor:/i.test(line)) {
+          result.sponsor = line.split(':').slice(1).join(':').trim();
+        } else if (/^Name of Guest:/i.test(line)) {
+          result.guest = line.split(':').slice(1).join(':').trim().replace(/\s*\([^)]*\)\s*$/, '');
+        } else if (/^Name of Direct GM:/i.test(line)) {
+          result.directGmFirst = line.split(':').slice(1).join(':').trim();
+        } else {
+          const p = parseTimeLine(line);
+          if (!p) continue;
+          const rest = p.rest;
+          const datePart = { day: p.day, month: p.month, year: p.year };
+
+          if (/Time of Flight Land/i.test(rest)) {
+            result.startDate = datePart;
+          }
+          if (/^SG:/i.test(rest)) {
+            result.sgDate = datePart;
+          }
+          if (/City Tour/i.test(rest)) {
+            const colonIdx = rest.indexOf(':');
+            const name = colonIdx >= 0 ? rest.substring(colonIdx + 1).trim() : '';
+            result.items.cityTour = { date: datePart, hhmm: p.hhmm, name };
+          }
+          const kkM = rest.match(/KK\s*-\s*(.+)/i);
+          if (kkM) result.items.kk = { date: datePart, hhmm: p.hhmm, name: kkM[1].trim() };
+          const gj1M = rest.match(/GJ1\s*-\s*(.+)/i);
+          if (gj1M) result.items.gj1 = { date: datePart, hhmm: p.hhmm, name: gj1M[1].trim() };
+          const numM = rest.match(/Numbers\s*-\s*(.+)/i);
+          if (numM) result.items.numbers = { date: datePart, hhmm: p.hhmm, name: numM[1].trim() };
+          const gj2M = rest.match(/GJ2\s*-\s*(.+)/i);
+          if (gj2M) result.items.gj2 = { date: datePart, hhmm: p.hhmm, name: gj2M[1].trim() };
+          const gj3M = rest.match(/GJ3\s*-\s*(.+)/i);
+          if (gj3M) result.items.gj3 = { date: datePart, hhmm: p.hhmm, name: gj3M[1].trim() };
+          const gj4M = rest.match(/GJ4\s*-\s*(.+)/i);
+          if (gj4M) result.items.gj4 = { date: datePart, hhmm: p.hhmm, name: gj4M[1].trim() };
+          const fkM = rest.match(/FK\s*[:\-]\s*(.+)/i);
+          if (fkM) {
+            let name = fkM[1].trim().replace(/\s*GM\s*$/i, '');
+            result.items.fk = { date: datePart, hhmm: p.hhmm, name };
+          }
+        }
+      }
+
+      if (result.startDate) {
+        const d = new Date(result.startDate.year, result.startDate.month - 1, result.startDate.day);
+        d.setDate(d.getDate() + 4);
+        result.endDate = { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
+      }
+
+      if (!result.items.cityTour) result.warnings.push('City Tour line not found');
+      if (!result.items.kk) result.warnings.push('KK line not found');
+      if (!result.items.gj1) result.warnings.push('GJ1 line not found');
+      if (!result.items.numbers) result.warnings.push('Numbers line not found');
+      if (!result.items.gj2) result.warnings.push('GJ2 line not found');
+      if (!result.items.gj3) result.warnings.push('GJ3 line not found');
+      if (!result.items.gj4) result.warnings.push('GJ4 line not found');
+      if (!result.items.fk) result.warnings.push('FK line not found');
+      if (!result.sgDate) result.warnings.push('SG: line not found — Date of Application will be blank');
+      if (!result.startDate) result.warnings.push('Time of Flight Land line not found — journey dates will be blank');
+
+      return result;
+    }
+
+    function fmtLongDate(d) {
+      if (!d) return '';
+      return `${String(d.day).padStart(2,'0')}/${String(d.month).padStart(2,'0')}/${d.year}`;
+    }
+    function fmtShortDate(d) {
+      if (!d) return '';
+      return `${String(d.day).padStart(2,'0')}/${String(d.month).padStart(2,'0')}/${String(d.year).slice(-2)}`;
+    }
+    function fmtItem(label, item) {
+      if (!item) return `[MISSING]: ${label} [MISSING]`;
+      return `${fmtShortDate(item.date)}: ${item.hhmm}hr ${label} ${item.name.toUpperCase()}`;
+    }
+
+    function SGFormApp() {
+      const [scheduleText, setScheduleText] = useState('');
+      const [parsed, setParsed] = useState(null);
+      const [chineseName, setChineseName] = useState('');
+      const [shares, setShares] = useState('108');
+      const [unicom, setUnicom] = useState('');
+      const [directGmFull, setDirectGmFull] = useState('');
+      const [gm1, setGm1] = useState('');
+      const [gm2, setGm2] = useState('');
+      const [gm3, setGm3] = useState('');
+      const [photoDataUrl, setPhotoDataUrl] = useState('');
+      const [generating, setGenerating] = useState(false);
+      const [error, setError] = useState('');
+
+      const handleParse = useCallback(() => {
+        setError('');
+        try {
+          const p = parseSchedule(scheduleText);
+          setParsed(p);
+          if (p.directGmFirst && !directGmFull) {
+            setDirectGmFull(p.directGmFirst);
+          }
+        } catch (e) {
+          setError('Failed to parse: ' + e.message);
+        }
+      }, [scheduleText, directGmFull]);
+
+      const handlePhoto = useCallback((e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!/^image\/(jpeg|png|jpg)$/i.test(file.type)) {
+          setError('Please upload a JPEG or PNG image');
+          return;
+        }
+        setError('');
+        const reader = new FileReader();
+        reader.onload = (ev) => setPhotoDataUrl(ev.target.result);
+        reader.readAsDataURL(file);
+      }, []);
+
+      const canGenerate = parsed && chineseName !== null && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl;
+
+      const handleGenerate = useCallback(async () => {
+        if (!canGenerate) {
+          setError('Please fill in all fields, upload a passport photo, and parse the schedule first.');
+          return;
+        }
+        setError('');
+        setGenerating(true);
+        try {
+          const node = document.getElementById('sg-pdf-layout');
+          // Wait a frame to make sure the node is rendered
+          await new Promise(r => setTimeout(r, 50));
+          const canvas = await html2canvas(node, {
+            scale: 2,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+          });
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
+          const { jsPDF } = window.jspdf;
+          // 10" x 5.6" landscape
+          const pdf = new jsPDF({ orientation: 'landscape', unit: 'in', format: [10, 5.6] });
+          pdf.addImage(imgData, 'JPEG', 0, 0, 10, 5.6);
+          const safeName = (parsed.guest || 'APPLICANT').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+          pdf.save(`SG_${safeName}.pdf`);
+        } catch (e) {
+          console.error(e);
+          setError('PDF generation failed: ' + e.message);
+        } finally {
+          setGenerating(false);
+        }
+      }, [canGenerate, parsed]);
+
+      const applicantNameUC = parsed ? parsed.guest.toUpperCase() : '';
+      const sponsorUC = parsed ? parsed.sponsor.toUpperCase() : '';
+      const fullAppName = chineseName ? `${applicantNameUC} ${chineseName}` : applicantNameUC;
+
+      const sampleText = `Name of Sponsor: Tan Geok Yian
+Name of Guest: Harrison Phong (Guest)
+13/4 1pm Time of Flight Land✅
+13/4 2:30pm Airport Transfer & City Tour: 芳芳✅
+14/4 2pm KK-Mag Yeo✅
+14/4 5:30pm GJ1-Shaun Goh✅
+15/4 9am URA✅
+15/4 2pm Numbers-Alex Lim✅
+15/4 6pm GJ2-Agnes Oon✅
+15/4 7pm Family Dinner✅
+15/4 9:30pm 3rd Night: Wendy and Joenna GM
+16/4 10:30am GJ3-Carina Ng✅
+16/4 12:30pm Register phone Card 🔄 Wendy will arrange**
+16/4 3:30pm GJ4-Daniel Png✅
+16/4 6pm FK: Wendy and Joenna GM✅
+16/4 6pm SG: Moxhan (GM-Rachell,Joenna,Wendy)
+Name of Direct GM: Wendy
+16/4 7pm AP Networking Dinner✅
+18/4 11:30am Airport Transfer✅
+18/4 2:00pm Time of Flight home✅`;
+
+      return (
+        <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-1">SG 表格生成器</h1>
+          <p className="text-sm text-gray-400 mb-4">SG Form PDF Generator</p>
+
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* Form side */}
+            <div className="w-full lg:w-1/2 space-y-4">
+              {/* Step 1: Schedule */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                <h2 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
+                  Step 1 — Paste Schedule
+                </h2>
+                <textarea
+                  value={scheduleText}
+                  onChange={e => setScheduleText(e.target.value)}
+                  placeholder="Paste raw schedule text here..."
+                  rows={10}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm font-mono outline-none focus:border-blue-500"
+                />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={handleParse}
+                    className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 min-h-[44px]"
+                  >
+                    Parse Schedule
+                  </button>
+                  <button
+                    onClick={() => setScheduleText(sampleText)}
+                    className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200"
+                  >
+                    Load Sample
+                  </button>
+                </div>
+                {parsed && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs">
+                    <div><strong>Sponsor:</strong> {parsed.sponsor || '—'}</div>
+                    <div><strong>Guest:</strong> {parsed.guest || '—'}</div>
+                    <div><strong>Direct GM:</strong> {parsed.directGmFirst || '—'}</div>
+                    <div><strong>SG Date:</strong> {fmtLongDate(parsed.sgDate) || '—'}</div>
+                    <div><strong>Start:</strong> {fmtLongDate(parsed.startDate) || '—'}</div>
+                    <div><strong>End (+4 days):</strong> {fmtLongDate(parsed.endDate) || '—'}</div>
+                    {parsed.warnings.length > 0 && (
+                      <div className="mt-2 text-amber-700">
+                        ⚠ {parsed.warnings.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Details */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                <h2 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
+                  Step 2 — Additional Details
+                </h2>
+                <TextField label="申请人中文名" labelEn="Chinese Name (optional)" value={chineseName} onChange={setChineseName} />
+                <div className="mb-3">
+                  <label className="block mb-1">
+                    <span className="font-semibold text-gray-800">股份</span>
+                    <span className="text-xs text-gray-400 ml-1.5">Applied Shares</span>
+                  </label>
+                  <select
+                    value={shares}
+                    onChange={e => setShares(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-base min-h-[44px] outline-none focus:border-blue-500"
+                  >
+                    <option value="66">66</option>
+                    <option value="108">108</option>
+                  </select>
+                </div>
+                <TextField label="中国联通号码" labelEn="China Unicom Number" value={unicom} onChange={setUnicom} />
+                <TextField label="直属家长全名" labelEn="Direct GM Full Name" value={directGmFull} onChange={setDirectGmFull} />
+                <TextField label="见证人 1 全名" labelEn="Witness GM1" value={gm1} onChange={setGm1} />
+                <TextField label="见证人 2 全名" labelEn="Witness GM2" value={gm2} onChange={setGm2} />
+                <TextField label="见证人 3 全名" labelEn="Witness GM3" value={gm3} onChange={setGm3} />
+              </div>
+
+              {/* Step 3: Photo */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                <h2 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
+                  Step 3 — Passport Photo
+                </h2>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  onChange={handlePhoto}
+                  className="w-full text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {photoDataUrl && (
+                  <img src={photoDataUrl} alt="Passport preview" className="mt-3 max-h-32 rounded border border-gray-200" />
+                )}
+              </div>
+
+              {/* Step 4: Generate */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className={`w-full py-3 rounded-lg text-base font-semibold min-h-[48px] transition-all ${
+                    generating
+                      ? 'bg-gray-300 text-gray-500'
+                      : 'bg-green-600 text-white hover:bg-green-700 active:scale-[0.98]'
+                  }`}
+                >
+                  {generating ? 'Generating PDF...' : 'Generate & Download PDF'}
+                </button>
+                {error && <p className="mt-3 text-red-600 text-sm">{error}</p>}
+              </div>
+            </div>
+
+            {/* Preview side */}
+            <div className="w-full lg:w-1/2">
+              <div className="sticky top-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                  <h2 className="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">PDF Preview</h2>
+                  <div className="overflow-auto border border-gray-200 rounded">
+                    <div style={{ transform: 'scale(0.5)', transformOrigin: 'top left', width: '1000px', height: '560px' }}>
+                      <SGPdfLayout
+                        photoDataUrl={photoDataUrl}
+                        parsed={parsed}
+                        chineseName={chineseName}
+                        shares={shares}
+                        unicom={unicom}
+                        directGmFull={directGmFull}
+                        gm1={gm1} gm2={gm2} gm3={gm3}
+                        visible
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Hidden off-screen layout used for html2canvas capture */}
+          <div style={{ position: 'fixed', left: '-10000px', top: 0, pointerEvents: 'none' }}>
+            <SGPdfLayout
+              id="sg-pdf-layout"
+              photoDataUrl={photoDataUrl}
+              parsed={parsed}
+              chineseName={chineseName}
+              shares={shares}
+              unicom={unicom}
+              directGmFull={directGmFull}
+              gm1={gm1} gm2={gm2} gm3={gm3}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // The fixed-dimensions HTML layout that becomes the PDF.
+    // 1000 x 560 px corresponds to ~10" x 5.6" at 100dpi.
+    function SGPdfLayout({ id, photoDataUrl, parsed, chineseName, shares, unicom, directGmFull, gm1, gm2, gm3 }) {
+      const applicantName = parsed ? parsed.guest.toUpperCase() : '';
+      const sponsor = parsed ? parsed.sponsor.toUpperCase() : '';
+      const fullApp = chineseName ? `${applicantName} ${chineseName}` : applicantName;
+      const sgDate = parsed ? fmtLongDate(parsed.sgDate) : '';
+      const startDate = parsed ? fmtLongDate(parsed.startDate) : '';
+      const endDate = parsed ? fmtLongDate(parsed.endDate) : '';
+
+      const row = (label, item) => {
+        if (!item) return `[missing] ${label} [missing]`;
+        return `${fmtShortDate(item.date)}: ${item.hhmm}hr ${label} ${item.name.toUpperCase()}`;
+      };
+
+      const items = parsed ? parsed.items : {};
+
+      return (
+        <div
+          id={id}
+          style={{
+            width: '1000px',
+            height: '560px',
+            background: '#ffffff',
+            color: '#000000',
+            fontFamily: 'Arial, Helvetica, "Noto Sans SC", sans-serif',
+            position: 'relative',
+            padding: '50px',
+            boxSizing: 'border-box',
+          }}
+        >
+          {/* Left column: Passport */}
+          <div style={{ position: 'absolute', top: '50px', left: '50px', width: '350px', height: '200px', overflow: 'hidden', background: '#f3f3f3' }}>
+            {photoDataUrl ? (
+              <img
+                src={photoDataUrl}
+                alt="passport"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: '14px' }}>
+                Passport Photo
+              </div>
+            )}
+          </div>
+
+          {/* Left column: Witness */}
+          <div style={{ position: 'absolute', top: '340px', left: '50px', width: '350px' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '18px', marginBottom: '18px' }}>Witness</div>
+            <div style={{ fontSize: '16px', lineHeight: '2' }}>
+              <div>1. GM1: {(gm1 || '').toUpperCase()}</div>
+              <div>2. GM2: {(gm2 || '').toUpperCase()}</div>
+              <div>3. GM3: {(gm3 || '').toUpperCase()}</div>
+            </div>
+          </div>
+
+          {/* Right column: Header */}
+          <div style={{ position: 'absolute', top: '50px', left: '450px', right: '50px', fontSize: '17px', lineHeight: '1.5' }}>
+            <div>Date of Application: {sgDate}</div>
+            <div>Date of Journey: {startDate} – {endDate}</div>
+            <div>Application Name: {fullApp}</div>
+            <div>Sponsor Name: {sponsor}</div>
+            <div>Direct GM: {(directGmFull || '').toUpperCase()}</div>
+          </div>
+
+          {/* Right column: Schedule */}
+          <div style={{ position: 'absolute', top: '200px', left: '450px', right: '50px', fontSize: '17px', lineHeight: '1.5' }}>
+            <div>{row('City tour', items.cityTour)}</div>
+            <div>{row('KK', items.kk)}</div>
+            <div>{row('GJ1', items.gj1)}</div>
+            <div>{row('Numbers', items.numbers)}</div>
+            <div>{row('GJ2', items.gj2)}</div>
+            <div>{row('GJ3', items.gj3)}</div>
+            <div>{row('GJ4', items.gj4)}</div>
+            <div>{row('FK', items.fk)}</div>
+          </div>
+
+          {/* Right column: Footer */}
+          <div style={{ position: 'absolute', top: '440px', left: '450px', right: '50px', fontSize: '17px', lineHeight: '1.6' }}>
+            <div>Applied Share: {shares} shares</div>
+            <div>China Unicom Number: {unicom}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ROOT APP WITH MODULE SWITCHER
+    // ============================================================
+
+    function App() {
+      const [module, setModule] = useState('templates');
+      return (
+        <div>
+          <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex gap-2">
+              <button
+                onClick={() => setModule('templates')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  module === 'templates' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                中文模板 / Templates
+              </button>
+              <button
+                onClick={() => setModule('sgform')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  module === 'sgform' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                SG 表格 / SG Form
+              </button>
+            </div>
+          </div>
+          {module === 'templates' ? <ChineseTemplateApp /> : <SGFormApp />}
         </div>
       );
     }
