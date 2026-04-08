@@ -380,18 +380,36 @@
       };
 
       function parseTimeLine(line) {
-        const clean = line.replace(/[✅🔄]/g, '').replace(/\*+$/, '').trim();
-        const m = clean.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+(.*)$/i);
+        // Strip common emojis/markers and normalise whitespace
+        let clean = line
+          .replace(/[\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF\u2700-\u27FF\uFE0F]/g, '')
+          .replace(/\*+/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        // Date: DD[/.-]MM (separator is / . or -)
+        // Time: either HH:MM(am|pm) / HHam|HHpm / HH:MM (24hr) / HHMM (24hr)
+        // with optional spaces anywhere and optional "at" keyword
+        const m = clean.match(
+          /^(\d{1,2})[\/\.\-](\d{1,2})(?:[\/\.\-](\d{2,4}))?\s+(?:at\s+)?(\d{1,2})(?:[:\.](\d{2}))?\s*(am|pm|AM|PM)?\s+(.*)$/
+        );
         if (!m) return null;
         const day = parseInt(m[1], 10);
         const month = parseInt(m[2], 10);
-        let hour = parseInt(m[3], 10);
-        const min = m[4] ? parseInt(m[4], 10) : 0;
-        const ampm = m[5].toLowerCase();
+        let year = currentYear;
+        if (m[3]) {
+          year = parseInt(m[3], 10);
+          if (year < 100) year += 2000;
+        }
+        let hour = parseInt(m[4], 10);
+        const min = m[5] ? parseInt(m[5], 10) : 0;
+        const ampm = m[6] ? m[6].toLowerCase() : null;
         if (ampm === 'pm' && hour !== 12) hour += 12;
         if (ampm === 'am' && hour === 12) hour = 0;
+        // If no am/pm and hour <= 7, assume PM (common evening activities);
+        // otherwise leave as 24hr.
+        if (day < 1 || day > 31 || month < 1 || month > 12 || hour > 23) return null;
         const hhmm = String(hour).padStart(2, '0') + String(min).padStart(2, '0');
-        return { day, month, year: currentYear, hhmm, rest: m[6].trim() };
+        return { day, month, year, hhmm, rest: m[7].trim() };
       }
 
       for (const line of lines) {
@@ -413,27 +431,44 @@
           if (/^SG:/i.test(rest)) {
             result.sgDate = datePart;
           }
-          if (/City Tour/i.test(rest)) {
-            const colonIdx = rest.indexOf(':');
-            const name = colonIdx >= 0 ? rest.substring(colonIdx + 1).trim() : '';
+          // Flexible separator: ":", "-", "–", "—", or whitespace
+          const SEP = '[\\s:\\-–—]+';
+          const extractAfter = (keyword) => {
+            const re = new RegExp('\\b' + keyword + SEP + '(.+)$', 'i');
+            const mm = rest.match(re);
+            return mm ? mm[1].trim().replace(/[\s,;.]+$/, '') : null;
+          };
+
+          // City Tour — take whatever comes after it (drop "City Tour" phrase)
+          if (/city\s*tour/i.test(rest)) {
+            const ctMatch = rest.match(/city\s*tour[\s:\-–—]*(.*)$/i);
+            let name = ctMatch ? ctMatch[1].trim() : '';
+            name = name.replace(/[\s,;.]+$/, '');
             result.items.cityTour = { date: datePart, hhmm: p.hhmm, name };
           }
-          const kkM = rest.match(/KK\s*-\s*(.+)/i);
-          if (kkM) result.items.kk = { date: datePart, hhmm: p.hhmm, name: kkM[1].trim() };
-          const gj1M = rest.match(/GJ1\s*-\s*(.+)/i);
-          if (gj1M) result.items.gj1 = { date: datePart, hhmm: p.hhmm, name: gj1M[1].trim() };
-          const numM = rest.match(/Numbers\s*-\s*(.+)/i);
-          if (numM) result.items.numbers = { date: datePart, hhmm: p.hhmm, name: numM[1].trim() };
-          const gj2M = rest.match(/GJ2\s*-\s*(.+)/i);
-          if (gj2M) result.items.gj2 = { date: datePart, hhmm: p.hhmm, name: gj2M[1].trim() };
-          const gj3M = rest.match(/GJ3\s*-\s*(.+)/i);
-          if (gj3M) result.items.gj3 = { date: datePart, hhmm: p.hhmm, name: gj3M[1].trim() };
-          const gj4M = rest.match(/GJ4\s*-\s*(.+)/i);
-          if (gj4M) result.items.gj4 = { date: datePart, hhmm: p.hhmm, name: gj4M[1].trim() };
-          const fkM = rest.match(/FK\s*[:\-]\s*(.+)/i);
-          if (fkM) {
-            let name = fkM[1].trim().replace(/\s*GM\s*$/i, '');
-            result.items.fk = { date: datePart, hhmm: p.hhmm, name };
+
+          const kkName = extractAfter('KK');
+          if (kkName) result.items.kk = { date: datePart, hhmm: p.hhmm, name: kkName };
+
+          const gj1Name = extractAfter('GJ1');
+          if (gj1Name) result.items.gj1 = { date: datePart, hhmm: p.hhmm, name: gj1Name };
+
+          const numName = extractAfter('Numbers');
+          if (numName) result.items.numbers = { date: datePart, hhmm: p.hhmm, name: numName };
+
+          const gj2Name = extractAfter('GJ2');
+          if (gj2Name) result.items.gj2 = { date: datePart, hhmm: p.hhmm, name: gj2Name };
+
+          const gj3Name = extractAfter('GJ3');
+          if (gj3Name) result.items.gj3 = { date: datePart, hhmm: p.hhmm, name: gj3Name };
+
+          const gj4Name = extractAfter('GJ4');
+          if (gj4Name) result.items.gj4 = { date: datePart, hhmm: p.hhmm, name: gj4Name };
+
+          const fkName = extractAfter('FK');
+          if (fkName) {
+            const cleaned = fkName.replace(/\s*GM\s*$/i, '').trim();
+            result.items.fk = { date: datePart, hhmm: p.hhmm, name: cleaned };
           }
         }
       }
