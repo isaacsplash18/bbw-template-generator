@@ -485,21 +485,26 @@
           result.allDates.push({ day: date.day, month: date.month, year: date.year });
         }
 
-        if (/\bSG\s*:/i.test(line) && date) {
-          result.sgDate = { day: date.day, month: date.month, year: date.year };
+        // SG keyword (with or without colon) marks the SG date line
+        if (/\bSG\b\s*[:]?/i.test(line) && date && !/\bSG\s*[-–—]/i.test(line)) {
+          // Only treat as SG date if it's not a flight line like "SG - NN"
+          if (!/city\s*tour|\bKK\b|\bGJ\s*[1-4]\b|\bNumbers\b|\bFK\b|Flight|Scoot|AirAsia/i.test(line)) {
+            result.sgDate = { day: date.day, month: date.month, year: date.year };
+          }
         }
 
-        if (!date || !time) continue;
+        if (!date) continue;
 
         const datePart = { day: date.day, month: date.month, year: date.year };
-        const timePart = time.hhmm;
+        const timePart = time ? time.hhmm : '';
+        const timeMatchStr = time ? time.match : null;
 
         function pickName(keywordRegex) {
           const km = line.match(keywordRegex);
           if (!km) return null;
           const idx = line.indexOf(km[0]);
           const rest = line.substring(idx + km[0].length);
-          return extractName(rest, date.match, time.match);
+          return extractName(rest, date.match, timeMatchStr);
         }
 
         if (/city\s*tour/i.test(line)) {
