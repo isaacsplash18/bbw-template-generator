@@ -558,15 +558,16 @@
         result.endDate = { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
       }
 
-      if (!result.items.cityTour) result.warnings.push('City Tour not found');
-      if (!result.items.kk) result.warnings.push('KK not found');
-      if (!result.items.gj1) result.warnings.push('GJ1 not found');
-      if (!result.items.numbers) result.warnings.push('Numbers not found');
-      if (!result.items.gj2) result.warnings.push('GJ2 not found');
-      if (!result.items.gj3) result.warnings.push('GJ3 not found');
-      if (!result.items.gj4) result.warnings.push('GJ4 not found');
-      if (!result.items.fk) result.warnings.push('FK not found');
-      if (!result.sgDate) result.warnings.push('SG: line not found');
+      const labelMap = { cityTour: 'City Tour', kk: 'KK', gj1: 'GJ1', numbers: 'Numbers', gj2: 'GJ2', gj3: 'GJ3', gj4: 'GJ4', fk: 'FK' };
+      for (const key of Object.keys(labelMap)) {
+        const item = result.items[key];
+        if (!item) {
+          result.warnings.push(`${labelMap[key]} not found`);
+        } else if (!item.hhmm) {
+          result.warnings.push(`${labelMap[key]} is missing a time — please add one to the schedule line`);
+        }
+      }
+      if (!result.sgDate) result.warnings.push('SG line not found');
       if (!result.startDate) result.warnings.push('No dates found');
 
       return result;
@@ -625,9 +626,18 @@
         reader.readAsDataURL(file);
       }, []);
 
-      const canGenerate = parsed && chineseName !== null && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl;
+      const missingTimes = parsed
+        ? Object.entries({ 'City Tour': parsed.items.cityTour, KK: parsed.items.kk, GJ1: parsed.items.gj1, Numbers: parsed.items.numbers, GJ2: parsed.items.gj2, GJ3: parsed.items.gj3, GJ4: parsed.items.gj4, FK: parsed.items.fk })
+            .filter(([, v]) => v && !v.hhmm)
+            .map(([k]) => k)
+        : [];
+      const canGenerate = parsed && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl && missingTimes.length === 0;
 
       const handleGenerate = useCallback(async () => {
+        if (missingTimes.length > 0) {
+          setError(`Missing time on: ${missingTimes.join(', ')}. Please add a time (e.g. "10am", "2:30pm") to each of these lines in the schedule.`);
+          return;
+        }
         if (!canGenerate) {
           setError('Please fill in all fields, upload a passport photo, and parse the schedule first.');
           return;
