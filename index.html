@@ -51,8 +51,8 @@
       gmName:        [1,2],
       directorName:  [1,2],
       date:          [1,2,3],
-      timeOfDay:     [1,3],
-      hour:          [1,3],
+      timeOfDay:     [1,2,3],
+      hour:          [1,2,3],
       sessionType:   [1,2,3],
       numGuests:     [1],
       monthReturn:   [5],
@@ -76,7 +76,7 @@
         case 1:
           return `${f.seniorName}前辈您好\n我是.......${f.myName} \n推荐人...${f.sponsorName} \n家长.......${f.gmName} \n大家长...${f.directorName} \n请问您能够接我${d} ${time}的${f.sessionType}吗？\n我这里有${f.numGuests}位VIP会去${f.sessionType}。 谢谢您，感恩 ${f.myName}敬上`;
         case 2:
-          return `${f.seniorName}前辈您好\n我是.......${f.myName} \n推荐人...${f.sponsorName} \n家长.......${f.gmName} \n大家长...${f.directorName} \n感谢${f.seniorName}您百忙之中接我${d} ${f.sessionType}\n谢谢您，感恩 ${f.myName}敬上`;
+          return `${f.seniorName}前辈您好\n我是.......${f.myName} \n推荐人...${f.sponsorName} \n家长.......${f.gmName} \n大家长...${f.directorName} \n感谢${f.seniorName}您百忙之中接我${d} ${time}的${f.sessionType}\n谢谢您，感恩 ${f.myName}敬上`;
         case 3:
           return `${f.seniorName}前辈您好 \n我是${f.myName}, ${f.sponsorName}家人\n我想和你确定明天${time}的${f.sessionType}\n请把地址发给我 \n谢谢 ${f.myName}敬上`;
         case 4:
