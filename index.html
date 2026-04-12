@@ -544,7 +544,7 @@
         }
       }
 
-      // Start Date: earliest date in the schedule (covers both formats)
+      // Start Date: earliest date in the schedule (flight land)
       if (result.allDates.length > 0) {
         const sorted = result.allDates.slice().sort((a,b) => {
           return new Date(a.year, a.month-1, a.day) - new Date(b.year, b.month-1, b.day);
@@ -552,10 +552,30 @@
         result.startDate = sorted[0];
       }
 
-      if (result.startDate) {
-        const d = new Date(result.startDate.year, result.startDate.month - 1, result.startDate.day);
-        d.setDate(d.getDate() + 4);
-        result.endDate = { day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() };
+      // End Date: date of FK session (not a fixed +4 days)
+      if (result.items.fk && result.items.fk.date) {
+        result.endDate = result.items.fk.date;
+      }
+
+      // Validate trip is at least 5 days inclusive
+      if (result.startDate && result.endDate) {
+        const s = new Date(result.startDate.year, result.startDate.month - 1, result.startDate.day);
+        const e = new Date(result.endDate.year, result.endDate.month - 1, result.endDate.day);
+        const days = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+        result.tripDays = days;
+        if (days < 5) {
+          result.warnings.push(`Trip is only ${days} days (${fmtLongDate(result.startDate)} to ${fmtLongDate(result.endDate)}). Must be at least 5 days inclusive.`);
+          result.tripTooShort = true;
+        }
+      }
+
+      // Sort Numbers and GJ2 chronologically — swap if GJ2 comes before Numbers
+      if (result.items.numbers && result.items.gj2) {
+        const nDate = new Date(result.items.numbers.date.year, result.items.numbers.date.month-1, result.items.numbers.date.day, parseInt(result.items.numbers.hhmm.slice(0,2)||0), parseInt(result.items.numbers.hhmm.slice(2)||0));
+        const gDate = new Date(result.items.gj2.date.year, result.items.gj2.date.month-1, result.items.gj2.date.day, parseInt(result.items.gj2.hhmm.slice(0,2)||0), parseInt(result.items.gj2.hhmm.slice(2)||0));
+        result.numbersFirst = nDate <= gDate;
+      } else {
+        result.numbersFirst = true;
       }
 
       const labelMap = { cityTour: 'City Tour', kk: 'KK', gj1: 'GJ1', numbers: 'Numbers', gj2: 'GJ2', gj3: 'GJ3', gj4: 'GJ4', fk: 'FK' };
@@ -569,6 +589,7 @@
       }
       if (!result.sgDate) result.warnings.push('SG line not found');
       if (!result.startDate) result.warnings.push('No dates found');
+      if (!result.endDate && !result.items.fk) result.warnings.push('FK not found — end date cannot be determined');
 
       return result;
     }
@@ -633,9 +654,14 @@
             .filter(([, v]) => v && !v.hhmm)
             .map(([k]) => k)
         : [];
-      const canGenerate = parsed && chineseName && sponsorChineseName && directGmChineseName && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl && missingTimes.length === 0;
+      const tripTooShort = parsed?.tripTooShort || false;
+      const canGenerate = parsed && chineseName && sponsorChineseName && directGmChineseName && shares && unicom && directGmFull && gm1 && gm2 && gm3 && photoDataUrl && missingTimes.length === 0 && !tripTooShort;
 
       const handleGenerate = useCallback(async () => {
+        if (tripTooShort) {
+          setError(`Trip is only ${parsed.tripDays} days. Must be at least 5 days inclusive (start date to FK date). Please check your schedule.`);
+          return;
+        }
         if (missingTimes.length > 0) {
           setError(`Missing time on: ${missingTimes.join(', ')}. Please add a time (e.g. "10am", "2:30pm") to each of these lines in the schedule.`);
           return;
@@ -747,7 +773,9 @@ Name of Direct GM: JUNE LIM KAN CHEONG
                     <div><strong>Direct GM:</strong> {parsed.directGmFirst || '—'}</div>
                     <div><strong>SG Date:</strong> {fmtLongDate(parsed.sgDate) || '—'}</div>
                     <div><strong>Start:</strong> {fmtLongDate(parsed.startDate) || '—'}</div>
-                    <div><strong>End (+4 days):</strong> {fmtLongDate(parsed.endDate) || '—'}</div>
+                    <div><strong>End (FK date):</strong> {fmtLongDate(parsed.endDate) || '—'}
+                      {parsed.tripDays && <span className={parsed.tripTooShort ? 'text-red-600 font-semibold' : 'text-green-700'}> ({parsed.tripDays} days{parsed.tripTooShort ? ' — too short! Must be 5+' : ''})</span>}
+                    </div>
                     {parsed.warnings.length > 0 && (
                       <div className="mt-2 text-amber-700">
                         ⚠ {parsed.warnings.join(' · ')}
@@ -836,6 +864,7 @@ Name of Direct GM: JUNE LIM KAN CHEONG
                         unicom={unicom}
                         directGmFull={directGmFull}
                         gm1={gm1} gm2={gm2} gm3={gm3}
+                        numbersFirst={parsed?.numbersFirst}
                         visible
                       />
                     </div>
@@ -858,6 +887,7 @@ Name of Direct GM: JUNE LIM KAN CHEONG
               unicom={unicom}
               directGmFull={directGmFull}
               gm1={gm1} gm2={gm2} gm3={gm3}
+              numbersFirst={parsed?.numbersFirst}
             />
           </div>
         </div>
@@ -866,7 +896,7 @@ Name of Direct GM: JUNE LIM KAN CHEONG
 
     // The fixed-dimensions HTML layout that becomes the PDF.
     // 1000 x 560 px corresponds to ~10" x 5.6" at 100dpi.
-    function SGPdfLayout({ id, photoDataUrl, parsed, chineseName, sponsorChineseName, directGmChineseName, shares, unicom, directGmFull, gm1, gm2, gm3 }) {
+    function SGPdfLayout({ id, photoDataUrl, parsed, chineseName, sponsorChineseName, directGmChineseName, shares, unicom, directGmFull, gm1, gm2, gm3, numbersFirst }) {
       const applicantName = parsed ? parsed.guest.toUpperCase() : '';
       const sponsor = parsed ? parsed.sponsor.toUpperCase() : '';
       const fullApp = chineseName ? `${applicantName} ${chineseName}` : applicantName;
@@ -936,8 +966,17 @@ Name of Direct GM: JUNE LIM KAN CHEONG
             <div>{row('City tour', items.cityTour)}</div>
             <div>{row('KK', items.kk)}</div>
             <div>{row('GJ1', items.gj1)}</div>
-            <div>{row('Numbers', items.numbers)}</div>
-            <div>{row('GJ2', items.gj2)}</div>
+            {numbersFirst !== false ? (
+              <React.Fragment>
+                <div>{row('Numbers', items.numbers)}</div>
+                <div>{row('GJ2', items.gj2)}</div>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <div>{row('GJ2', items.gj2)}</div>
+                <div>{row('Numbers', items.numbers)}</div>
+              </React.Fragment>
+            )}
             <div>{row('GJ3', items.gj3)}</div>
             <div>{row('GJ4', items.gj4)}</div>
             <div>{row('FK', items.fk)}</div>
