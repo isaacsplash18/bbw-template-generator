@@ -552,9 +552,12 @@
         result.startDate = sorted[0];
       }
 
-      // End Date: date of FK session (not a fixed +4 days)
-      if (result.items.fk && result.items.fk.date) {
-        result.endDate = result.items.fk.date;
+      // End Date: last day of the trip (latest date in the schedule)
+      if (result.allDates.length > 0) {
+        const sorted = result.allDates.slice().sort((a,b) => {
+          return new Date(a.year, a.month-1, a.day) - new Date(b.year, b.month-1, b.day);
+        });
+        result.endDate = sorted[sorted.length - 1];
       }
 
       // Validate trip is at least 5 days inclusive
@@ -589,7 +592,7 @@
       }
       if (!result.sgDate) result.warnings.push('SG line not found');
       if (!result.startDate) result.warnings.push('No dates found');
-      if (!result.endDate && !result.items.fk) result.warnings.push('FK not found — end date cannot be determined');
+      if (!result.endDate) result.warnings.push('End date could not be determined');
 
       return result;
     }
@@ -773,7 +776,7 @@ Name of Direct GM: JUNE LIM KAN CHEONG
                     <div><strong>Direct GM:</strong> {parsed.directGmFirst || '—'}</div>
                     <div><strong>SG Date:</strong> {fmtLongDate(parsed.sgDate) || '—'}</div>
                     <div><strong>Start:</strong> {fmtLongDate(parsed.startDate) || '—'}</div>
-                    <div><strong>End (FK date):</strong> {fmtLongDate(parsed.endDate) || '—'}
+                    <div><strong>End (last day):</strong> {fmtLongDate(parsed.endDate) || '—'}
                       {parsed.tripDays && <span className={parsed.tripTooShort ? 'text-red-600 font-semibold' : 'text-green-700'}> ({parsed.tripDays} days{parsed.tripTooShort ? ' — too short! Must be 5+' : ''})</span>}
                     </div>
                     {parsed.warnings.length > 0 && (
